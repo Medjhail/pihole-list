@@ -1,0 +1,17 @@
+browser.sentry-cdn.com
+graph.instagram.com
+connect.facebook.net
+graph.facebook.com
+tr.facebook.com
+ads.x.com
+business-api.tiktok.com
+pixel.quora.com
+px.srvcs.tumblr.com
+ads.vk.com
+consent.cookiebot.com
+consent.trustarc.com
+sdk.privacy-center.org
+cdn.privacy-mgmt.com
+app.usercentrics.eu
+widget.intercom.io
+js.driftt.com
