@@ -95,6 +95,17 @@ class BiquadApp:
         self.setup_ui()
         self.update_clock()
         self.update_channels()
+        # Iniciar escaneo inicial para poblar la lista de SSIDs
+        threading.Thread(target=self.initial_scan, daemon=True).start()
+
+    def initial_scan(self):
+        self.label_status.config(text="Buscando redes iniciales...")
+        data = self.perform_wifi_scan()
+        if data:
+            self.root.after(0, lambda d=data: self.update_spectrum_plot(d))
+            self.label_status.config(text="Redes detectadas.")
+        else:
+            self.label_status.config(text="No se detectaron redes en el inicio.")
 
     def setup_ui(self):
         # Notebook para pestañas
@@ -126,6 +137,8 @@ class BiquadApp:
 
         self.btn_measure = ttk.Button(ctrl_frame, text="Medir Intensidad", command=self.toggle_measure)
         self.btn_measure.pack(side=tk.LEFT, padx=5)
+
+        ttk.Button(ctrl_frame, text="Refrescar Lista", command=self.manual_refresh).pack(side=tk.LEFT, padx=5)
 
         # Indicadores visuales
         info_frame = ttk.Frame(self.tab_meter, padding=10)
@@ -290,11 +303,15 @@ class BiquadApp:
             self.label_status.config(text="Escaneo detenido")
 
     def scan_loop(self):
-        while self.scan_running:
-            data = self.perform_wifi_scan()
-            self.networks_data = data
-            self.root.after(0, lambda d=data: self.update_spectrum_plot(d))
-            time.sleep(5) # Escaneo cada 5 segundos
+        try:
+            while self.scan_running:
+                data = self.perform_wifi_scan()
+                self.networks_data = data
+                self.root.after(0, lambda d=data: self.update_spectrum_plot(d))
+                time.sleep(5) # Escaneo cada 5 segundos
+        except Exception as e:
+            self.root.after(0, lambda msg=str(e): self.label_status.config(text=f"Error en escaneo: {msg}"))
+            self.scan_running = False
 
     def perform_wifi_scan(self):
         """
@@ -341,8 +358,8 @@ class BiquadApp:
         current_signal = None
 
         # Patrones para SSID, Señal y Canal
-        re_ssid = re.compile(r"^SSID\s+\d+\s+:\s*(.*)$", re.IGNORECASE)
-        re_signal = re.compile(r"(?:Signal|Señal|Intensidad)\s*:\s*(\d+)%", re.IGNORECASE)
+        re_ssid = re.compile(r"^SSID\s+\d+\s*:\s*(.*)$", re.IGNORECASE)
+        re_signal = re.compile(r"(?:Signal|Señal|Intensidad)\s*:\s*(\d+)\s*%", re.IGNORECASE)
         re_channel = re.compile(r"(?:Channel|Canal)\s*:\s*(\d+)", re.IGNORECASE)
 
         for line in output.splitlines():
@@ -380,6 +397,10 @@ class BiquadApp:
 
         return networks
 
+    def manual_refresh(self):
+        """Dispara un escaneo único para refrescar la lista de SSIDs."""
+        threading.Thread(target=self.initial_scan, daemon=True).start()
+
     def toggle_measure(self):
         if not self.measure_running:
             if not self.selected_ssid.get():
@@ -398,31 +419,35 @@ class BiquadApp:
         Bucle de medición continua para la red seleccionada.
         Busca el BSSID con señal más fuerte para el SSID elegido.
         """
-        while self.measure_running:
-            ssid = self.selected_ssid.get()
-            data = self.perform_wifi_scan()
+        try:
+            while self.measure_running:
+                ssid = self.selected_ssid.get()
+                data = self.perform_wifi_scan()
 
-            # Actualizar lista de SSIDs en el combo mientras tanto
-            ssids = sorted(list(set(net['ssid'] for net in data)))
-            self.root.after(0, lambda s=ssids: self.update_ssid_list(s))
+                # Actualizar lista de SSIDs en el combo mientras tanto
+                ssids = sorted(list(set(net['ssid'] for net in data)))
+                self.root.after(0, lambda s=ssids: self.update_ssid_list(s))
 
-            # Buscar la red seleccionada (la señal más fuerte si hay múltiples BSSIDs)
-            strongest_net = None
-            for net in data:
-                if net['ssid'] == ssid:
-                    if strongest_net is None or net['signal'] > strongest_net['signal']:
-                        strongest_net = net
+                # Buscar la red seleccionada (la señal más fuerte si hay múltiples BSSIDs)
+                strongest_net = None
+                for net in data:
+                    if net['ssid'] == ssid:
+                        if strongest_net is None or net['signal'] > strongest_net['signal']:
+                            strongest_net = net
 
-            if strongest_net:
-                dbm = (strongest_net['signal'] / 2) - 100
-                self.rssi_history.append(dbm)
-                if len(self.rssi_history) > 50: self.rssi_history.pop(0)
+                if strongest_net:
+                    dbm = (strongest_net['signal'] / 2) - 100
+                    self.rssi_history.append(dbm)
+                    if len(self.rssi_history) > 50: self.rssi_history.pop(0)
 
-                self.root.after(0, lambda d=dbm, p=strongest_net['signal']: self.update_meter_ui(d, p))
-            else:
-                self.root.after(0, lambda: self.label_rssi.config(text="Red no detectada"))
+                    self.root.after(0, lambda d=dbm, p=strongest_net['signal']: self.update_meter_ui(d, p))
+                else:
+                    self.root.after(0, lambda: self.label_rssi.config(text="Red no detectada"))
 
-            time.sleep(2) # Actualización cada 2 segundos
+                time.sleep(2) # Actualización cada 2 segundos
+        except Exception as e:
+            self.root.after(0, lambda msg=str(e): self.label_status.config(text=f"Error en medición: {msg}"))
+            self.measure_running = False
 
     def update_ssid_list(self, ssids):
         current = self.selected_ssid.get()
